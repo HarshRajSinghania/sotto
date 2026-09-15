@@ -163,7 +163,7 @@ Selection precedence (first non-empty name wins):
 3. the name saved by `sotto theme set`
 4. `nord` if none of the above is set, or the named theme is unknown
 
-Styling is disabled — even when a theme is selected — whenever any of these apply:
+Styling is disabled, even when a theme is selected, whenever any of these apply:
 
 - `--plain`
 - `NO_COLOR` set to a non-empty value (the [no-color.org](https://no-color.org/) contract)
