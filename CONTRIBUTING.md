@@ -117,13 +117,30 @@ authoritative and wins on any discrepancy; each translation says so in its heade
 cargo test --workspace
 ```
 
+- To run the core codec fuzz smoke checks, follow the [fuzzing guide](.ci/core-fuzz.md).
+
 - When working on server or integration behaviour, use the existing crate test harnesses.
+
+- To collect native Rust coverage with database tests enabled, follow the
+  [coverage baseline guide](.ci/rust-coverage.md). It explains the disposable database,
+  pinned tool, report files and measurement exclusions. Coverage is used to find missing
+  behaviour checks; there is no minimum percentage gate.
 
 - Run the script policy tests too (Python 3.11 or newer; CI uses 3.12):
 
 ```sh
 python3 -B -m unittest discover -s scripts/tests -v
 ```
+
+For the focused encoding and envelope proofs, see the [Kani guide](.ci/kani.md).
+It documents the pinned verifier, reproduction command, input bounds and what the proofs
+do not establish. Keep normal tests alongside those proofs.
+
+- For the merge-required assurance checks, see the [assurance guide](.ci/assurance.md).
+  It explains same-run completion validation, the required-check manifest and local fixtures.
+
+- For server authorisation and transaction assurance, see the [server assurance guide](.ci/server-assurance.md).
+  It explains the required Postgres mode, scenario completion marker and current coverage boundary.
 
 ## Supply-chain policy
 

@@ -94,6 +94,10 @@ export function VaultView({
   const [orgRoles, setOrgRoles] = useState<Map<string, string>>(new Map());
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rotatingEnvId, setRotatingEnvId] = useState<string | null>(null);
+  const rotatingEnvRef = useRef<string | null>(null);
+  const [sharingEnvId, setSharingEnvId] = useState<string | null>(null);
+  const sharingEnvRef = useRef<string | null>(null);
   // Selection loads can resolve out of order; only the latest generation may update the view.
   const projectLoad = useRef(0);
   const envLoad = useRef(0);
@@ -220,6 +224,9 @@ export function VaultView({
     if (openEnv === null || members === null) {
       return;
     }
+    if (sharingEnvRef.current === openEnv.envId) {
+      return;
+    }
     setError(null);
     setNotice(null);
     const member = members.find((m) => m.userId === shareTo);
@@ -231,6 +238,9 @@ export function VaultView({
       setError("that member has no account keys yet - they must finish setup first");
       return;
     }
+    const envId = openEnv.envId;
+    sharingEnvRef.current = envId;
+    setSharingEnvId(envId);
     try {
       const sealed = sealGrantTo(member.publicKey, openEnv.vaultKey);
       await createGrant(openEnv.envId, member.userId, sealed);
@@ -249,15 +259,23 @@ export function VaultView({
       setNotice(`shared this environment with ${member.userId}`);
     } catch (e) {
       setError(message(e));
+    } finally {
+      if (sharingEnvRef.current === envId) {
+        sharingEnvRef.current = null;
+      }
+      setSharingEnvId((current) => (current === envId ? null : current));
     }
   }
 
   /// Rotate the open environment's vault key (admin/owner): rewrap every current + history data
   /// key, re-seal grants for the current holders and machine tokens, then reload under the new key.
   async function rotateEnv() {
-    if (openEnv === null) {
+    if (openEnv === null || rotatingEnvRef.current === openEnv.envId) {
       return;
     }
+    const envId = openEnv.envId;
+    rotatingEnvRef.current = envId;
+    setRotatingEnvId(envId);
     setError(null);
     setNotice(null);
     try {
@@ -311,6 +329,12 @@ export function VaultView({
       }
     } catch (e) {
       setError(message(e));
+    } finally {
+      if (rotatingEnvRef.current === envId) {
+        rotatingEnvRef.current = null;
+      }
+
+      setRotatingEnvId((current) => (current === envId ? null : current));
     }
   }
 
@@ -416,7 +440,11 @@ export function VaultView({
             >
               <label>
                 Share this environment with
-                <select value={shareTo} onChange={(e) => setShareTo(e.target.value)}>
+                <select
+                  value={shareTo}
+                  onChange={(e) => setShareTo(e.target.value)}
+                  disabled={sharingEnvId === openEnv.envId}
+                >
                   <option value="">- pick a member -</option>
                   {members.map((m) => (
                     <option key={m.userId} value={m.userId}>
@@ -425,8 +453,11 @@ export function VaultView({
                   ))}
                 </select>
               </label>
-              <button type="submit" disabled={shareTo === ""}>
-                Share
+              <button
+                type="submit"
+                disabled={shareTo === "" || sharingEnvId === openEnv.envId}
+              >
+                {sharingEnvId === openEnv.envId ? "Sharing…" : "Share"}
               </button>
             </form>
           )}
@@ -436,7 +467,12 @@ export function VaultView({
               orgId !== null && ["owner", "admin"].includes(orgRoles.get(orgId) ?? "");
             return canRotate ? (
               <p>
-                <button onClick={() => void rotateEnv()}>Rotate environment key</button>
+                <button
+                  onClick={() => void rotateEnv()}
+                  disabled={rotatingEnvId === openEnv.envId}
+                >
+                  {rotatingEnvId === openEnv.envId ? "Rotating…" : "Rotate environment key"}
+                </button>
               </p>
             ) : null;
           })()}

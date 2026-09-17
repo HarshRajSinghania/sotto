@@ -87,6 +87,7 @@ describe("VaultView selection loading", () => {
     vi.mocked(api.fetchProjects).mockResolvedValue([project("project-a"), project("project-b")]);
     vi.mocked(api.fetchMembers).mockResolvedValue([]);
     vi.mocked(api.fetchMyGrant).mockResolvedValue(new Uint8Array([7]));
+    vi.mocked(api.fetchSecrets).mockResolvedValue([]);
     vi.mocked(vault.decryptProjectName).mockImplementation((_key, id) => id);
     vi.mocked(vault.decryptEnvName).mockImplementation((_key, id) => id);
     vi.mocked(vault.decryptSecretName).mockImplementation((_key, _envId, entry) => entry.id);
@@ -159,5 +160,98 @@ describe("VaultView selection loading", () => {
     });
     expect(screen.getByRole("button", { name: "secret-b" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "secret-a" })).not.toBeInTheDocument();
+  });
+
+  it("sends only one rotation request when rotate is clicked twice", async () => {
+    vi.mocked(api.fetchProjects).mockResolvedValue([
+      { id: "project-a", encName: new Uint8Array([1]), orgId: "org-1" },
+    ]);
+    vi.mocked(api.fetchEnvironments).mockResolvedValue([environment("env-a")]);
+    vi.mocked(api.fetchMembers).mockResolvedValue([]);
+    vi.mocked(api.fetchMyGrant).mockResolvedValue(new Uint8Array([7]));
+    vi.mocked(api.fetchSnapshot).mockResolvedValue({ revision: 1, secrets: [] });
+    vi.mocked(api.fetchHistory).mockResolvedValue([]);
+    vi.mocked(api.fetchGrantHolders).mockResolvedValue([]);
+    vi.mocked(api.fetchMachineTokens).mockResolvedValue([]);
+    vi.mocked(api.fetchOrgs).mockResolvedValue([
+      { id: "org-1", encName: new Uint8Array(), role: "owner", encOrgKey: null },
+    ]);
+    vi.mocked(vault.decryptProjectName).mockReturnValue("project-a");
+    vi.mocked(vault.decryptEnvName).mockReturnValue("env-a");
+    vi.mocked(vault.openEnvGrant).mockReturnValue(new Uint8Array([8]));
+
+    const rotation = deferred<void>();
+    vi.mocked(api.postRotate).mockReturnValue(rotation.promise);
+
+    renderVault();
+
+    fireEvent.click(await screen.findByRole("button", { name: /project-a/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "env-a" }));
+    const rotateButton = await screen.findByRole("button", { name: "Rotate environment key" });
+
+    await act(async () => {
+      fireEvent.click(rotateButton);
+      fireEvent.click(rotateButton);
+    });
+
+    await waitFor(() =>
+      expect(api.postRotate).toHaveBeenCalledTimes(1),
+    );
+
+    await act(async () => {
+      rotation.resolve();
+    });
+  });
+
+  it("sends only one grant request when share is submitted twice", async () => {
+    vi.mocked(api.fetchProjects).mockResolvedValue([
+      { id: "project-a", encName: new Uint8Array([1]), orgId: "org-1" },
+    ]);
+    vi.mocked(api.fetchEnvironments).mockResolvedValue([environment("env-a")]);
+    vi.mocked(api.fetchMembers).mockResolvedValue([
+      { userId: "member-a", role: "member", publicKey: new Uint8Array([6]) },
+    ]);
+    vi.mocked(api.fetchMyGrant).mockResolvedValue(new Uint8Array([7]));
+    vi.mocked(api.fetchSecrets).mockResolvedValue([]);
+    vi.mocked(api.fetchOrgs).mockResolvedValue([
+      { id: "org-1", encName: new Uint8Array(), role: "owner", encOrgKey: null },
+    ]);
+    vi.mocked(vault.decryptProjectName).mockReturnValue("project-a");
+    vi.mocked(vault.decryptEnvName).mockReturnValue("env-a");
+    vi.mocked(vault.openEnvGrant).mockReturnValue(new Uint8Array([8]));
+    vi.mocked(vault.sealGrantTo).mockReturnValue(new Uint8Array([9]));
+
+    const shareRequest = deferred<void>();
+    vi.mocked(api.createGrant).mockReturnValue(shareRequest.promise);
+
+    renderVault();
+
+    fireEvent.click(await screen.findByRole("button", { name: /project-a/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "env-a" }));
+    const memberSelect = await screen.findByRole("combobox", { name: /Share this environment with/ });
+    fireEvent.change(memberSelect, { target: { value: "member-a" } });
+    const shareForm = screen.getByRole("button", { name: "Share" }).closest("form");
+    expect(shareForm).not.toBeNull();
+    if (shareForm === null) {
+      return;
+    }
+
+    await act(async () => {
+      fireEvent.submit(shareForm);
+      fireEvent.submit(shareForm);
+    });
+
+    expect(api.createGrant).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Sharing…" })).toBeDisabled();
+    expect(memberSelect).toBeDisabled();
+
+    await act(async () => {
+      shareRequest.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Share" })).toBeEnabled();
+    });
+    expect(memberSelect).toBeEnabled();
   });
 });

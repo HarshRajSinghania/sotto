@@ -8,6 +8,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -25,6 +29,22 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
+
+  core-platform:
+    name: Core codec (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Core tests
+        run: cargo test -p sotto-core --all-targets
 
   readme-i18n:
     runs-on: ubuntu-latest
@@ -198,6 +218,11 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Server + end-to-end tests (with Postgres)
         run: cargo test -p sotto-server -p sotto-cli
+      - name: Server authorisation and transaction assurance
+        run: |
+          set -euo pipefail
+          cargo test -p sotto-server --test authorisation_transactions -- --test-threads=1 --nocapture 2>&1 | tee server-assurance.log
+          grep -Eq '^SERVER_ASSURANCE_DONE 7$' server-assurance.log
       - name: Restore checker meets a real database
         # Its assertions are unit tested, but its queries are not: left alone they would only
         # ever meet a database when the monthly restore runs, which is a poor place to discover
@@ -310,7 +335,14 @@ jobs:
       - name: Reject skipped funnel tests
         working-directory: web
         run: |
-          node -e 'const report = require("./test-results/playwright.json"); const skipped = report.stats?.skipped ?? 0; if (skipped !== 0) { console.error(`funnel suite skipped ${skipped} test(s)`); process.exit(1); }'
+          node <<'NODE'
+          const report = require("./test-results/playwright.json");
+          const skipped = report.stats?.skipped ?? 0;
+          if (skipped !== 0) {
+            console.error(`funnel suite skipped ${skipped} test(s)`);
+            process.exit(1);
+          }
+          NODE
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -345,3 +377,17 @@ jobs:
         run: scripts/check-cargo-audit
       - name: cargo-deny (advisories, bans, licences, sources)
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+
+  assurance-complete:
+    name: ci assurance complete
+    if: always()
+    needs: [test, core-platform, readme-i18n, action-consumer, wasm, web, server, funnel-e2e, supply-chain]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Validate required CI jobs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: scripts/check-assurance --group ci --expected-sha "$EXPECTED_SHA"
